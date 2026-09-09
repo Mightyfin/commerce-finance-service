@@ -30,6 +30,10 @@ func main() {
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	if cfg.DocumentServiceBaseURL == "" {
+		log.Error("COMMERCE_FINANCE_DOCUMENT_SERVICE_BASE_URL is required for verified confirmations")
+		os.Exit(1)
+	}
 	defer stop()
 	pool, err := database.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -42,7 +46,7 @@ func main() {
 		log.Error("OIDC unavailable", "error", err)
 		os.Exit(1)
 	}
-	server := http.Server{Addr: cfg.HTTPAddress, Handler: httpapi.Server{Verifier: verifier, Store: commerce.Store{Pool: pool}}.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: time.Minute}
+	server := http.Server{Addr: cfg.HTTPAddress, Handler: httpapi.Server{Verifier: verifier, Store: commerce.Store{Pool: pool, Verifier: commerce.HTTPDocumentVerifier{BaseURL: cfg.DocumentServiceBaseURL}}}.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: time.Minute}
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)

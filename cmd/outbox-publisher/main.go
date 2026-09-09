@@ -23,7 +23,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	publisher, closePublisher, err := eventbus.NewPublisher(natsURL, os.Getenv("COMMERCE_FINANCE_NATS_TOKEN"))
+	publisher, closePublisher, err := eventbus.NewPublisher(natsURL, os.Getenv("COMMERCE_FINANCE_NATS_TOKEN"), os.Getenv("COMMERCE_FINANCE_ENVIRONMENT"))
 	if err != nil {
 		log.Fatal(err)
 	}

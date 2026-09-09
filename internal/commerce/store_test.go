@@ -1,9 +1,19 @@
 package commerce
 
 import (
+	"math"
 	"testing"
 	"time"
 )
+
+func TestItemTotalRejectsOverflow(t *testing.T) {
+	if _, err := itemTotal([]Item{{ValueMinor: math.MaxInt64}, {ValueMinor: 1}}); err == nil {
+		t.Fatal("overflow accepted")
+	}
+	if total, err := itemTotal([]Item{{ValueMinor: math.MaxInt64 - 1}, {ValueMinor: 1}}); err != nil || total != math.MaxInt64 {
+		t.Fatal(total, err)
+	}
+}
 
 func TestValidateCreateRequiresEvidence(t *testing.T) {
 	in := CreateInput{FacilityID: "fac_1", RecipientParticipantID: "par_1", Currency: "ZMW", DeliveryConfirmedAt: time.Now(), IdempotencyKey: "idem-key-1", Items: []Item{{Description: "Delivered goods", ValueMinor: 100}}}

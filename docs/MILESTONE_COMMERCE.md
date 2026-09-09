@@ -1,6 +1,6 @@
 # Commerce Finance Capability Milestone
 
-Scope: evidence-backed fulfilment registration, tenant-safe list/get, and idempotent dispute opening.
+Scope: fulfilment registration with verified clean document versions, originating-application and facility-participant checks, tenant-safe list/get, and idempotent dispute opening. These checks are implemented locally; coordinated deployment and public UAT remain release gates. Historical unverified records are not upgraded by inference. See UAT-RELEASE-GATES.md.
 
 Controls:
 

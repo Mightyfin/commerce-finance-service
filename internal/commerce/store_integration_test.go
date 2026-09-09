@@ -24,12 +24,12 @@ func TestStoreIsolationIdempotencyAndEligibility(t *testing.T) {
 	if err = database.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	_, err = pool.Exec(ctx, `INSERT INTO eligible_facilities(facility_id,tenant_id,credit_application_id,currency,status,source_event_id,updated_at) VALUES('fac_test_1','ten_1','cap_1','ZMW','disbursed','evt_1',now())`)
+	_, err = pool.Exec(ctx, `INSERT INTO eligible_facilities(facility_id,tenant_id,credit_application_id,currency,status,source_event_id,updated_at,caller_application_id,recipient_relationship_id,party_id) VALUES('fac_test_1','ten_1','cap_1','ZMW','disbursed','evt_1',now(),'app_1','npt_1','party_1')`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	store := Store{Pool: pool}
+	store := Store{Pool: pool, Verifier: testEvidenceVerifier{}}
 	owner := Principal{Subject: "client-1", TenantID: "ten_1", ApplicationID: "app_1"}
 	input := CreateInput{
 		FacilityID:             "fac_test_1",
@@ -37,7 +37,7 @@ func TestStoreIsolationIdempotencyAndEligibility(t *testing.T) {
 		Currency:               "ZMW",
 		DeliveryConfirmedAt:    time.Now().UTC(),
 		Items:                  []Item{{Description: "Delivered stock", ValueMinor: 10000}},
-		Evidence:               []Evidence{{DocumentID: "doc_1", Type: "delivery_note"}},
+		Evidence:               []Evidence{{DocumentID: "doc_1", Type: "delivery_note", SHA256: testDigest}},
 		IdempotencyKey:         "fulfillment-test-1",
 	}
 	created, replayed, err := store.Create(ctx, owner, input)

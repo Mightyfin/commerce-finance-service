@@ -46,7 +46,7 @@ func (s Server) ready(w http.ResponseWriter, r *http.Request) {
 	}
 	write(w, 200, map[string]string{"status": "ready"})
 }
-func (s Server) principal(w http.ResponseWriter, r *http.Request, scope string) (commerce.Principal, bool) {
+func (s Server) principal(w http.ResponseWriter, r *http.Request, scopes ...string) (commerce.Principal, bool) {
 	scheme, token, ok := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
 	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
 		write(w, 401, map[string]string{"error": "unauthorized"})
@@ -57,14 +57,16 @@ func (s Server) principal(w http.ResponseWriter, r *http.Request, scope string) 
 		write(w, 401, map[string]string{"error": "unauthorized"})
 		return commerce.Principal{}, false
 	}
-	if !p.HasScope(scope) {
-		write(w, 403, map[string]string{"error": "forbidden"})
-		return commerce.Principal{}, false
+	for _, scope := range scopes {
+		if !p.HasScope(scope) {
+			write(w, 403, map[string]string{"error": "insufficient_scope", "required_scope": scope})
+			return commerce.Principal{}, false
+		}
 	}
-	return commerce.Principal{Subject: p.Subject, TenantID: p.TenantID, ApplicationID: p.ApplicationID}, true
+	return commerce.Principal{Subject: p.Subject, TenantID: p.TenantID, ApplicationID: p.ApplicationID, Environment: p.Environment, Token: token}, true
 }
 func (s Server) create(w http.ResponseWriter, r *http.Request) {
-	p, ok := s.principal(w, r, "commerce:write")
+	p, ok := s.principal(w, r, "commerce:write", "documents.evidence.verify")
 	if !ok {
 		return
 	}
@@ -146,9 +148,7 @@ func (s Server) dispute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.IdempotencyKey = strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	in.Reason = strings.TrimSpace(in.Reason)
-	in.Description = strings.TrimSpace(in.Description)
-	if len(in.IdempotencyKey) < 8 || len(in.Description) < 8 || len(in.Description) > 500 || (in.Reason != "goods_not_received" && in.Reason != "partial_delivery" && in.Reason != "damaged_goods" && in.Reason != "incorrect_goods" && in.Reason != "other") {
+	if commerce.ValidateDispute(&in) != nil {
 		write(w, 400, map[string]string{"error": "invalid_dispute"})
 		return
 	}
@@ -166,6 +166,10 @@ func result(w http.ResponseWriter, err error) bool {
 		return true
 	}
 	switch {
+	case errors.Is(err, commerce.ErrInvalid):
+		write(w, 400, map[string]string{"error": "invalid_fulfillment"})
+	case errors.Is(err, commerce.ErrEvidenceUnavailable):
+		write(w, 503, map[string]string{"error": "evidence_verification_unavailable", "message": "Documents could not be verified. No confirmation was saved. Retry with the same request key."})
 	case errors.Is(err, commerce.ErrNotFound):
 		write(w, 404, map[string]string{"error": "not_found"})
 	case errors.Is(err, commerce.ErrConflict):
@@ -197,7 +201,7 @@ func write(w http.ResponseWriter, status int, v any) {
 }
 func moneyToMinor(value string) (int64, error) {
 	whole, fraction, ok := strings.Cut(value, ".")
-	if !ok || len(fraction) != 2 || whole == "" || (strings.HasPrefix(whole, "0") && whole != "0") {
+	if !ok || len(fraction) != 2 || whole == "" || strings.Trim(whole+fraction, "0123456789") != "" || (strings.HasPrefix(whole, "0") && whole != "0") {
 		return 0, fmt.Errorf("invalid money")
 	}
 	w, err := strconv.ParseInt(whole, 10, 64)

@@ -47,9 +47,15 @@ func (s OutboxStore) Fail(ctx context.Context, id, cause string) error {
 	return err
 }
 
-type Publisher struct{ js nats.JetStreamContext }
+type Publisher struct {
+	js          nats.JetStreamContext
+	environment string
+}
 
-func NewPublisher(url, token string) (*Publisher, func(), error) {
+func NewPublisher(url, token, environment string) (*Publisher, func(), error) {
+	if !validEnvironment(environment) {
+		return nil, nil, fmt.Errorf("explicit event environment required")
+	}
 	opts := []nats.Option{nats.Name("commerce-finance-outbox-publisher")}
 	if token != "" {
 		opts = append(opts, nats.Token(token))
@@ -63,7 +69,7 @@ func NewPublisher(url, token string) (*Publisher, func(), error) {
 		nc.Close()
 		return nil, nil, err
 	}
-	return &Publisher{js: js}, nc.Close, nil
+	return &Publisher{js: js, environment: environment}, nc.Close, nil
 }
 func (p *Publisher) Ensure(ctx context.Context) error {
 	_, err := p.js.StreamInfo("COMMERCE_FINANCE_EVENTS", nats.Context(ctx))
@@ -77,7 +83,14 @@ func (p *Publisher) Ensure(ctx context.Context) error {
 	return err
 }
 func (p *Publisher) Publish(ctx context.Context, e OutboxEvent) error {
-	body, err := json.Marshal(Envelope{ID: e.ID, Type: e.Type, Version: "1", TenantID: e.TenantID, AggregateID: e.AggregateID, OccurredAt: e.OccurredAt, Data: e.Payload})
+	if !validEnvironment(p.environment) {
+		return fmt.Errorf("explicit event environment required")
+	}
+	payload, err := scopedPayload(e, p.environment)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(Envelope{ID: e.ID, Type: e.Type, Version: "1", Environment: p.environment, TenantID: e.TenantID, AggregateID: e.AggregateID, OccurredAt: e.OccurredAt, Data: payload})
 	if err != nil {
 		return err
 	}
@@ -85,6 +98,33 @@ func (p *Publisher) Publish(ctx context.Context, e OutboxEvent) error {
 	if suffix == e.Type || suffix == "" {
 		return fmt.Errorf("invalid commerce event")
 	}
-	_, err = p.js.Publish("mightyfin.commerce."+suffix, body, nats.MsgId(e.ID), nats.Context(ctx))
+	_, err = p.js.Publish("mightyfin.commerce."+suffix, body, nats.MsgId(p.environment+":"+e.ID), nats.Context(ctx))
 	return err
+}
+
+// The deployment owns environment, while the transaction owns tenant and caller
+// identity. Never invent an application for legacy unscoped events.
+func scopedPayload(e OutboxEvent, environment string) (json.RawMessage, error) {
+	var data map[string]json.RawMessage
+	if !validEnvironment(environment) || json.Unmarshal(e.Payload, &data) != nil || data == nil {
+		return nil, fmt.Errorf("invalid commerce event payload")
+	}
+	for key, expected := range map[string]string{"tenant_id": e.TenantID, "environment": environment} {
+		if raw, ok := data[key]; ok {
+			var actual string
+			if json.Unmarshal(raw, &actual) != nil || actual != expected {
+				return nil, fmt.Errorf("commerce event scope mismatch")
+			}
+		}
+		data[key], _ = json.Marshal(expected)
+	}
+	return json.Marshal(data)
+}
+
+func validEnvironment(v string) bool {
+	switch v {
+	case "local", "dev", "staging", "sandbox", "production":
+		return true
+	}
+	return false
 }

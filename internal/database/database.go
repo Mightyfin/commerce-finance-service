@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -25,7 +26,24 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return p, nil
 }
 func Migrate(ctx context.Context, p *pgxpool.Pool) error {
-	if _, err := p.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+	conn, err := p.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended(current_schema()||':commerce-migrations',0))`); err != nil {
+		return err
+	}
+	defer func() {
+		release, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var unlocked bool
+		if err := conn.QueryRow(release, `SELECT pg_advisory_unlock(hashtextextended(current_schema()||':commerce-migrations',0))`).Scan(&unlocked); err != nil || !unlocked {
+			// Never return a session with a retained migration lock to the pool.
+			_ = conn.Conn().Close(release)
+		}
+	}()
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations(version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return err
 	}
 	entries, err := files.ReadDir("migrations")
@@ -41,7 +59,7 @@ func Migrate(ctx context.Context, p *pgxpool.Pool) error {
 	sort.Strings(names)
 	for _, name := range names {
 		var applied bool
-		if err = p.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&applied); err != nil {
+		if err = conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&applied); err != nil {
 			return err
 		}
 		if applied {
@@ -51,7 +69,7 @@ func Migrate(ctx context.Context, p *pgxpool.Pool) error {
 		if readErr != nil {
 			return readErr
 		}
-		tx, beginErr := p.Begin(ctx)
+		tx, beginErr := conn.Begin(ctx)
 		if beginErr != nil {
 			return beginErr
 		}

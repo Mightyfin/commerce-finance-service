@@ -22,7 +22,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	if err = eventbus.Run(ctx, natsURL, os.Getenv("COMMERCE_FINANCE_NATS_TOKEN"), eventbus.FacilityProjection{Pool: pool}); err != nil && ctx.Err() == nil {
+	if err = eventbus.Run(ctx, natsURL, os.Getenv("COMMERCE_FINANCE_NATS_TOKEN"), eventbus.FacilityProjection{Pool: pool, Environment: os.Getenv("COMMERCE_FINANCE_ENVIRONMENT")}); err != nil && ctx.Err() == nil {
 		log.Fatal(err)
 	}
 }
