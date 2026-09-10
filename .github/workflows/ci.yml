@@ -26,6 +26,10 @@ jobs:
       COMMERCE_FINANCE_TEST_DATABASE_URL: postgres://commerce_test:commerce_test_password@127.0.0.1:5432/commerce_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+      - name: Start isolated JetStream test broker
+        run: |
+          docker run -d --name ci-nats -p 127.0.0.1:4222:4222 nats:2.11-alpine -js
+          echo "EVENTBUS_TEST_NATS_URL=nats://127.0.0.1:4222" >> "$GITHUB_ENV"
       - uses: actions/setup-go@v5
         with: {go-version-file: go.mod, cache: true}
       - run: test -z "$(gofmt -d cmd internal)"
