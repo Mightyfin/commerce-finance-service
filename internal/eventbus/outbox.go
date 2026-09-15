@@ -52,11 +52,15 @@ type Publisher struct {
 	environment string
 }
 
-func NewPublisher(url, token, environment string) (*Publisher, func(), error) {
+func NewPublisher(url, token, environment string, credentials ...nats.Option) (*Publisher, func(), error) {
 	if !validEnvironment(environment) {
 		return nil, nil, fmt.Errorf("explicit event environment required")
 	}
 	opts := []nats.Option{nats.Name("commerce-finance-outbox-publisher")}
+	if token != "" && len(credentials) > 0 {
+		return nil, nil, fmt.Errorf("ambiguous event credentials")
+	}
+	opts = append(opts, credentials...)
 	if token != "" {
 		opts = append(opts, nats.Token(token))
 	}

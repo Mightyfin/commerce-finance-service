@@ -142,11 +142,15 @@ func (p FacilityProjection) Apply(ctx context.Context, body []byte) error {
 	return tx.Commit(ctx)
 }
 
-func Run(ctx context.Context, url, token string, projection FacilityProjection) error {
+func Run(ctx context.Context, url, token string, projection FacilityProjection, credentials ...nats.Option) error {
 	if !validEnvironment(projection.Environment) {
 		return fmt.Errorf("explicit event environment required")
 	}
 	opts := []nats.Option{nats.Name("commerce-finance-facility-consumer")}
+	if token != "" && len(credentials) > 0 {
+		return fmt.Errorf("ambiguous event credentials")
+	}
+	opts = append(opts, credentials...)
 	if token != "" {
 		opts = append(opts, nats.Token(token))
 	}
